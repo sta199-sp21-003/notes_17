@@ -1,0 +1,239 @@
+---
+title: "CLT-based inference - hypothesis testing"
+author: ""
+date: ""
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      comment = "#>", highlight = TRUE,
+                      fig.align = "center")
+```
+
+## Main ideas
+
+- Understand the CLT and how to use the result
+
+- Perform statistical hypothesis tests using `base` R and `infer`
+  
+# Packages
+
+```{r packages}
+library(tidyverse)
+library(infer)
+```
+
+# Data
+
+In the examples and practice sections, we'll work with a subset of data from 
+the General Social Survey.
+
+```{r read_data}
+gss_2010 <- read_csv("data/gss_2010.csv")
+```
+
+# Notes
+
+Recall the hypothesis testing framework:
+
+1. Start with two hypotheses about the population: the null hypothesis and the 
+   alternative hypothesis.
+
+2. Choose a (representative) sample, collect data, and analyze the data.
+
+3. Figure out how likely it is to see data like what we observed, **IF** the 
+   null hypothesis were in fact true.
+
+4. If our data would have been extremely unlikely if the null claim were true, 
+   then we reject it and deem the alternative claim worthy of further study. 
+   Otherwise, we cannot reject the null claim.
+   
+To do step 3, we'll need to compute probabilities from the t-distribution or
+the normal distribution. Before we compute quantiles with `qt()` and 
+`qnorm()`, to compute probabilities we'll use `pt()` and `pnorm()`.
+
+Let's first see if we can understand how these functions work.
+
+```{r base_viz, echo=FALSE}
+ggbase <- ggplot() +
+  xlim(-4, 4) +
+  labs(y = "") +
+  theme_bw()
+```
+
+```{r pnorm_1}
+pnorm(q = 1.645)
+```
+
+```{r norm_viz_1, echo=FALSE}
+ggbase +
+  stat_function(fun = dnorm, geom = "area", fill = "lightblue", 
+                xlim = c(-4, 1.645)) +
+  stat_function(fun = dnorm, color = "grey60", size = 1.5) +
+  annotate(geom = "text", x = -3, y = 0.1, label = round(pnorm(q = 1.645), 3),
+           size = 8 , color = "red")
+```
+
+```{r pnorm_2}
+pnorm(q = 2.5)
+```
+
+```{r norm_viz_2, echo=FALSE}
+ggbase +
+  stat_function(fun = dnorm, geom = "area", fill = "lightblue", 
+                xlim = c(-4, 2.5)) +
+  stat_function(fun = dnorm, color = "grey60", size = 1.5) +
+  annotate(geom = "text", x = -3, y = 0.1, label = round(pnorm(q = 2.5), 3),
+           size = 8 , color = "red")
+```
+
+```{r pnorm_3}
+pnorm(q = -1.5)
+```
+
+```{r norm_viz_3, echo=FALSE}
+ggbase +
+  stat_function(fun = dnorm, geom = "area", fill = "lightblue", 
+                xlim = c(-4, -1.5)) +
+  stat_function(fun = dnorm, color = "grey60", size = 1.5) +
+  annotate(geom = "text", x = -3, y = 0.1, label = round(pnorm(q = -1.5), 3),
+           size = 8 , color = "red")
+```
+
+What are these functions calculating?
+
+### Example: hypothesis test for $\mu$
+
+We'll work with the same data as last time.
+
+The GSS asks "After an average work day, about how many 
+hours do you have to relax or pursue activities that you enjoy?". A past
+census study found that the mean hours was 3.6. Perform a hypothesis test to
+see if this number has increased.
+
+First, we'll check out our sample data and compute some summary statistics.
+
+```{r summary_stats_example}
+hrs_relax_stats <- gss_2010 %>% 
+  filter(!is.na(hrsrelax)) %>%
+  summarise(x_bar = mean(hrsrelax), 
+            s     = sd(hrsrelax), 
+            n     = n())
+
+hrs_relax_stats
+```
+
+#### Direct calculation via formula
+
+Let's grab these three statistics as vectors.
+
+```{r stats_vectors_example}
+n <- hrs_relax_stats$n
+x_bar <- hrs_relax_stats$x_bar
+s <- hrs_relax_stats$s
+mu_0 <- 3.6
+```
+
+Next, we need to compute our test statistic and the corresponding p-value.
+
+```{r test_stat_mu_example}
+test_stat <- (x_bar - mu_0) / (s / sqrt(n))
+test_stat
+```
+
+The p-value is the probability of getting a test statistic value as extreme
+or more extreme than `test_stat` given the null hypothesis is true.
+
+```{r p_value_mu_viz, echo=FALSE}
+ggbase +
+  stat_function(fun = dt, args = list(df = n - 1), geom = "area", 
+                fill = "lightblue", xlim = c(test_stat, 4)) +
+  stat_function(fun = dt, args = list(df = n - 1), 
+                color = "grey60", size = 1.5) +
+  labs(caption = "The p-value is the blue shaded region.")
+```
+
+
+```{r p_value_mu_example}
+p_value <- 1 - pt(test_stat, df = n - 1)
+```
+
+Why do we have `1 - pt(test_stat, df = n - 1)`?
+
+How do we interpret this result?
+
+#### Infer
+
+The `infer` package has a function to do these calculations in one
+step. Function `t_test()` is a tidier version of the built-in R function
+`t.test()`.
+
+```{r infer_mu_example}
+t_test(gss_2010, response = hrsrelax, mu = 3.6, alternative = "greater",
+       conf_int = FALSE)
+```
+
+## Practice
+
+Redo the above analysis, but perform the test to see if this number has changed.
+Conduct your test at the $\alpha = 0.10$ significance level. Also, compute
+a 90% confidence interval. What do you notice?
+
+```{r test_mu_practice}
+
+```
+
+### Example: hypothesis test for $p$
+
+The GSS asks "Are you better off today than you were four years ago?". 
+Use a CLT-based approach to test if that proportion has decreased from its level
+four years ago of 0.33.
+
+First, we'll check the success-failure condition.
+
+```{r success_failure_check}
+gss_2010 %>% 
+  count(better)
+```
+
+We're also assuming these observations are independent.
+
+Use `infer` to do our test.
+
+```{r infer_p_example}
+gss_2010 %>% 
+  mutate(better = ifelse(better == 1, "better", "worse")) %>% 
+  prop_test(response = better, success = "better", conf_int = FALSE,
+            alternative = "less", z = TRUE)
+```
+
+What is your conclusion?
+
+## Practice
+
+Redo the above analysis using `base` R functions and `pnorm()`.
+
+
+## Inference for other parameters
+
+While we aren't able to cover inference for every parameter, you now have the
+tools to conduct inference for other parameters such as the difference in
+means, the difference in proportions, testing if variables are independent or
+not, etc. Although the test statistics will differ, the general framework and
+concepts remain the same.
+
+In doing inference for parameters outside of what we covered, take a look at
+the `infer` examples: 
+https://infer.netlify.app/articles/observed_stat_examples.html. A
+simulation-based approach is a good strategy if you don't
+know the underlying theoretical distribution. Keep this in mind as you think
+about research questions and explore data for your project.
+
+## References
+
+1. "Infer - Tidy Statistical Inference". Infer.Netlify.App, 2021, 
+   https://infer.netlify.app/index.html.
+   
